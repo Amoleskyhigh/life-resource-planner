@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>人生資源儀表板 | Life Resource Instrument</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/prop-types@15/prop-types.min.js"></script>
+<script crossorigin src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<style>body{background:#09090b;margin:0}</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useMemo } = React;
+const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+        ReferenceLine, ReferenceDot, ResponsiveContainer } = Recharts;
+
+// ---------- 曲線模型(0-90歲,相對水準0-100) ----------
+const lerp = (pts, age) => {
+  const xs = Object.keys(pts).map(Number).sort((a, b) => a - b);
+  if (age <= xs[0]) return pts[xs[0]];
+  if (age >= xs[xs.length - 1]) return pts[xs[xs.length - 1]];
+  for (let i = 0; i < xs.length - 1; i++) {
+    if (age >= xs[i] && age <= xs[i + 1]) {
+      const t = (age - xs[i]) / (xs[i + 1] - xs[i]);
+      return pts[xs[i]] + t * (pts[xs[i + 1]] - pts[xs[i]]);
+    }
+  }
+  return 0;
+};
+
+const CURVES = {
+  physical: { label: "體力/健康", color: "#FF6B5E", shape: "鐘形",
+    pts: { 0: 30, 15: 90, 25: 100, 35: 93, 45: 80, 55: 63, 65: 45, 75: 28, 90: 8 } },
+  fluid: { label: "流體智力", color: "#FFB454", shape: "鐘形",
+    pts: { 0: 30, 15: 92, 25: 100, 35: 95, 45: 87, 55: 77, 65: 65, 75: 51, 90: 30 } },
+  knowledge: { label: "知識/經驗", color: "#4FB3FF", shape: "持續增長",
+    pts: { 0: 2, 15: 30, 25: 52, 35: 67, 45: 80, 55: 89, 65: 96, 80: 100, 90: 99 } },
+  wealth: { label: "淨資產", color: "#3DDC97", shape: "複利增長",
+    pts: { 0: 0, 20: 2, 30: 10, 40: 28, 50: 55, 60: 85, 70: 100, 80: 92, 90: 80 } },
+  timeLeft: { label: "剩餘時間", color: "#8B93A7", shape: "單調遞減",
+    pts: { 0: 100, 90: 0 } },
+  freeTime: { label: "自由時間", color: "#C792EA", shape: "U形",
+    pts: { 0: 90, 15: 60, 25: 45, 35: 30, 42: 30, 50: 38, 60: 60, 70: 85, 80: 80, 90: 60 } },
+};
+
+const slopeOf = (key, age) =>
+  (lerp(CURVES[key].pts, age + 2) - lerp(CURVES[key].pts, age - 2)) / 4;
+const arrow = (s) =>
+  s > 1.2 ? "↑" : s > 0.3 ? "↗" : s > -0.3 ? "→" : s > -1.2 ? "↘" : "↓";
+
+// ---------- 方法三:應達曲線引擎 ----------
+// 假設從25歲、淨資產0開始,以固定年投入C+報酬率r,在退休年齡剛好達標。
+// 應達(a) = C × ((1+r)^(a-25) − 1) / r
+function wealthEngine({ age, target, currentNW, ret, retireAge }) {
+  const r = ret / 100;
+  const startAge = 25;
+  const nYears = Math.max(1, retireAge - startAge);
+  const growth = Math.pow(1 + r, nYears) - 1;
+  const baseC = r > 0 ? (target * r) / growth : target / nYears;
+
+  const expectedAt = (a) => {
+    if (a <= startAge) return 0;
+    const y = Math.min(a, retireAge) - startAge;
+    return r > 0 ? (baseC * (Math.pow(1 + r, y) - 1)) / r : baseC * y;
+  };
+
+  const expectedNow = expectedAt(age);
+  const ratio = expectedNow > 0 ? currentNW / expectedNow : currentNW > 0 ? 2 : 1;
+  const status = ratio >= 1.2 ? "ahead" : ratio >= 0.8 ? "ontrack" : "behind";
+
+  // 由現況回推:未來每年需投入多少才能達標
+  const yLeft = Math.max(0, retireAge - age);
+  const fvOfCurrent = currentNW * Math.pow(1 + r, yLeft);
+  const gap = target - fvOfCurrent;
+  const annuity = r > 0 ? (Math.pow(1 + r, yLeft) - 1) / r : yLeft;
+  const requiredAnnual = yLeft > 0 ? gap / Math.max(annuity, 0.0001) : gap;
+
+  return { expectedAt, expectedNow, ratio, status, requiredAnnual, fvOfCurrent, yLeft };
+}
+
+// ---------- 優先順序引擎 ----------
+function computePriorities(age, exercise, wealthStatus, freeHrs, requiredAnnual) {
+  const p = [];
+  const phys = lerp(CURVES.physical.pts, age);
+
+  let healthScore = 60 + (age >= 35 ? 15 : 0) + (exercise === "low" ? 25 : exercise === "mid" ? 10 : 0);
+  p.push({
+    name: "健康(乘數)", score: healthScore,
+    why: exercise === "low"
+      ? "你目前運動頻率偏低,而健康是其他五條曲線都要乘上去的係數——這是現在報酬率最高的投資。"
+      : "健康是所有資源的乘數。維持現有習慣,重點是不中斷。",
+    action: age < 35 ? "建立可維持30年的運動習慣(不求強度,求不中斷)" : "肌力訓練優先於有氧——40歲後肌肉量每年流失約1%",
+  });
+
+  let wealthScore = 50 + (age < 40 ? 25 : age < 55 ? 15 : 0)
+    + (wealthStatus === "behind" ? 25 : wealthStatus === "ontrack" ? 5 : -15);
+  p.push({
+    name: "資產複利", score: wealthScore,
+    why: wealthStatus === "behind"
+      ? `你落後於應達曲線。要準時達標,之後每年約需投入 ${Math.max(0, Math.round(requiredAnnual))} 萬——落差越晚補,單價越高。`
+      : wealthStatus === "ahead"
+        ? "你超前應達曲線——現有資產靠複利就足以覆蓋大部分目標(接近Coast FIRE),可以把新增現金流部分轉向時間與體驗。"
+        : "你在應達曲線的軌道上。維持投入紀律即可,不需要加大風險去追。",
+    action: wealthStatus === "behind"
+      ? "先確認缺口是投入不足還是報酬假設過高,再決定提高儲蓄率或延後目標年齡"
+      : age < 50 ? "自動化定期投入,把儲蓄率當KPI而非絕對金額" : "壓力測試提領計畫,降低單一資產集中度",
+  });
+
+  let knowScore = 45 + (age < 30 ? 30 : age < 45 ? 15 : 5);
+  p.push({
+    name: "知識/技能", score: knowScore,
+    why: age < 30
+      ? "流體智力在頂點,學習速度此生最快——現在學的東西吸收成本最低。"
+      : "流體智力緩降但知識持續複利,學習策略應從「快速吸收」轉向「深度整合既有經驗」。",
+    action: age < 35 ? "投資可轉移的底層技能(數學、寫作、程式)" : "把經驗系統化輸出(教學、寫作、帶人)——這是知識曲線後段的複利方式",
+  });
+
+  let timeScore = 30 + (age >= 30 && age <= 50 ? 35 : 10) + (freeHrs === "low" ? 20 : 0)
+    + (wealthStatus === "ahead" ? 10 : 0);
+  p.push({
+    name: "買回時間", score: timeScore,
+    why: age >= 30 && age <= 50
+      ? "你正處在自由時間U形曲線的谷底——這是「用錢換時間」報酬率最高的階段。"
+      : "自由時間相對充裕,重點是把它花在鐘形曲線還開著的事情上。",
+    action: freeHrs === "low"
+      ? "列出時薪低於你收入1/3的所有雜務,全部外包或自動化"
+      : "保護整塊時間(deep work / 陪伴),零碎時間才交給雜務",
+  });
+
+  let expScore = 25 + (phys < 75 && phys > 40 ? 35 : phys <= 40 ? 45 : 5)
+    + (age >= 45 ? 10 : 0) + (wealthStatus === "ahead" ? 15 : 0);
+  p.push({
+    name: "體驗窗口", score: expScore,
+    why: phys > 75
+      ? "體力還在80分以上,高強度體驗(登山、長途旅行)的窗口全開——但別以為它永遠開著。"
+      : phys > 40
+        ? `體力已降至約${Math.round(phys)},高體力需求的體驗清單開始倒數,「以後再說」的成本正在快速上升。`
+        : "高強度體驗窗口大部分已關閉,重心轉向低體力、高意義的體驗(深度旅居、關係、傳承)。",
+    action: "把體驗清單按「所需體力」排序,體力需求最高的排最前面執行",
+  });
+
+  return p.sort((a, b) => b.score - a.score);
+}
+
+const STATUS_UI = {
+  behind: { text: "落後", cls: "text-red-400 border-red-400/50 bg-red-400/10" },
+  ontrack: { text: "符合", cls: "text-sky-300 border-sky-400/50 bg-sky-400/10" },
+  ahead: { text: "超前", cls: "text-emerald-400 border-emerald-400/50 bg-emerald-400/10" },
+};
+
+function LifeResourcePlanner() {
+  const [age, setAge] = useState(38);
+  const [exercise, setExercise] = useState("mid");
+  const [freeHrs, setFreeHrs] = useState("low");
+  const [visible, setVisible] = useState(Object.fromEntries(Object.keys(CURVES).map(k => [k, true])));
+  // 方法三輸入(單位:萬台幣)
+  const [target, setTarget] = useState(3000);
+  const [currentNW, setCurrentNW] = useState(800);
+  const [ret, setRet] = useState(6);
+  const [retireAge, setRetireAge] = useState(60);
+
+  const eng = useMemo(
+    () => wealthEngine({ age, target, currentNW, ret, retireAge }),
+    [age, target, currentNW, ret, retireAge]
+  );
+
+  const lifeData = useMemo(() => {
+    const rows = [];
+    for (let a = 0; a <= 90; a += 2) {
+      const row = { age: a };
+      Object.keys(CURVES).forEach(k => { row[k] = Math.round(lerp(CURVES[k].pts, a) * 10) / 10; });
+      rows.push(row);
+    }
+    return rows;
+  }, []);
+
+  const wealthData = useMemo(() => {
+    const rows = [];
+    for (let a = 25; a <= retireAge; a += 1) {
+      rows.push({ age: a, expected: Math.round(eng.expectedAt(a)) });
+    }
+    return rows;
+  }, [eng, retireAge]);
+
+  const readout = Object.keys(CURVES).map(k => ({
+    key: k, ...CURVES[k],
+    now: Math.round(lerp(CURVES[k].pts, age)),
+    slope: slopeOf(k, age),
+  }));
+
+  const priorities = computePriorities(age, exercise, eng.status, freeHrs, eng.requiredAnnual);
+  const st = STATUS_UI[eng.status];
+
+  const stage =
+    age < 25 ? "累積期 — 學習速度頂點" :
+    age < 35 ? "複利啟動期 — 體力頂點窗口" :
+    age < 50 ? "轉換期 — 自由時間谷底" :
+    age < 65 ? "收成期 — 體驗窗口倒數" : "執行期 — 資產轉體驗";
+
+  const Sel = ({ value, onChange, opts }) => (
+    <div className="flex gap-1">
+      {opts.map(([v, t]) => (
+        <button key={v} onClick={() => onChange(v)}
+          className={`px-2 py-1 text-xs rounded border transition-colors ${
+            value === v ? "border-amber-400 text-amber-300 bg-amber-400/10"
+                        : "border-zinc-700 text-zinc-400 hover:border-zinc-500"}`}>
+          {t}
+        </button>
+      ))}
+    </div>
+  );
+
+  const NumInput = ({ label, value, onChange, unit, min, max, step }) => (
+    <div>
+      <div className="text-xs text-zinc-500 mb-1">{label}</div>
+      <div className="flex items-center gap-1">
+        <input type="number" value={value} min={min} max={max} step={step}
+          onChange={e => onChange(Number(e.target.value))}
+          className="w-full bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-100 focus:border-amber-400 focus:outline-none"
+          style={{ fontFamily: "ui-monospace,monospace" }} />
+        <span className="text-xs text-zinc-500 whitespace-nowrap">{unit}</span>
+      </div>
+    </div>
+  );
+
+  return (
+    <div className="min-h-screen bg-zinc-950 text-zinc-200 p-4 md:p-8" style={{ fontFamily: "'Inter','Noto Sans TC',system-ui,sans-serif" }}>
+      <div className="max-w-5xl mx-auto">
+        <div className="mb-6 border-b border-zinc-800 pb-4">
+          <div className="text-xs tracking-widest text-amber-400/80 uppercase" style={{ fontFamily: "ui-monospace,monospace" }}>
+            Life Resource Instrument · v2.0
+          </div>
+          <h1 className="text-2xl md:text-3xl font-bold mt-1">人生資源儀表板</h1>
+          <p className="text-sm text-zinc-400 mt-1">六條曲線 + 應達曲線定位器。找出你這個階段該優先做好的事。</p>
+        </div>
+
+        {/* 輸入區 */}
+        <div className="grid md:grid-cols-3 gap-4 mb-6">
+          <div className="bg-zinc-900 rounded-lg p-4 border border-zinc-800">
+            <div className="flex justify-between items-baseline mb-2">
+              <span className="text-sm text-zinc-400">你的年齡</span>
+              <span className="text-3xl font-bold text-amber-300" style={{ fontFamily: "ui-monospace,monospace" }}>{age}</span>
+            </div>
+            <input type="range" min={25} max={85} value={age}
+              onChange={e => setAge(Number(e.target.value))}
+              className="w-full accent-amber-400" aria-label="年齡" />
+            <div className="text-xs text-zinc-500 mt-1">{stage}</div>
+            <div className="mt-4 space-y-3">
+              <div>
+                <div className="text-xs text-zinc-500 mb-1">每週運動</div>
+                <Sel value={exercise} onChange={setExercise}
+                  opts={[["low", "<1次"], ["mid", "1-3次"], ["high", "4次+"]]} />
+              </div>
+              <div>
+                <div className="text-xs text-zinc-500 mb-1">每週可自由支配時間</div>
+                <Sel value={freeHrs} onChange={setFreeHrs}
+                  opts={[["low", "<10h"], ["mid", "10-25h"], ["high", "25h+"]]} />
+              </div>
+            </div>
+          </div>
+
+          {/* 方法三計算器 */}
+          <div className="md:col-span-2 bg-zinc-900 rounded-lg p-4 border border-zinc-800">
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-sm font-semibold text-zinc-300">目標回推定位器(方法三)</div>
+              <span className={`text-xs px-2 py-0.5 rounded border font-semibold ${st.cls}`}>
+                {st.text} · {eng.ratio.toFixed(2)}x
+              </span>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+              <NumInput label="目標金額" value={target} onChange={setTarget} unit="萬" min={100} max={100000} step={100} />
+              <NumInput label="目前淨資產" value={currentNW} onChange={setCurrentNW} unit="萬" min={0} max={100000} step={50} />
+              <NumInput label="預期年報酬" value={ret} onChange={setRet} unit="%" min={0} max={15} step={0.5} />
+              <NumInput label="目標年齡" value={retireAge} onChange={setRetireAge} unit="歲" min={age + 1} max={80} step={1} />
+            </div>
+            <div className="h-40">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={wealthData} margin={{ top: 8, right: 12, left: -10, bottom: 0 }}>
+                  <CartesianGrid stroke="#27272a" strokeDasharray="2 4" />
+                  <XAxis dataKey="age" stroke="#71717a" tick={{ fontSize: 10 }} />
+                  <YAxis stroke="#71717a" tick={{ fontSize: 10 }} tickFormatter={v => `${v}`} />
+                  <Tooltip contentStyle={{ background: "#18181b", border: "1px solid #3f3f46", borderRadius: 8, fontSize: 12 }}
+                    labelFormatter={a => `年齡 ${a}`} formatter={(v, n) => [`${v} 萬`, n === "expected" ? "應達淨資產" : n]} />
+                  <Line dataKey="expected" name="應達淨資產" stroke="#3DDC97" dot={false} strokeWidth={1.8} strokeDasharray="6 3" />
+                  <ReferenceDot x={age} y={currentNW} r={5} fill="#FBBF24" stroke="#18181b" strokeWidth={2}
+                    label={{ value: "你", fill: "#FBBF24", fontSize: 11, position: "top" }} />
+                  <ReferenceLine y={target} stroke="#52525b" strokeDasharray="3 3"
+                    label={{ value: `目標 ${target}萬`, fill: "#71717a", fontSize: 10, position: "insideTopRight" }} />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+            <div className="grid grid-cols-3 gap-2 mt-2 text-center" style={{ fontFamily: "ui-monospace,monospace" }}>
+              <div className="bg-zinc-950 rounded p-2 border border-zinc-800">
+                <div className="text-xs text-zinc-500">此齡應達</div>
+                <div className="text-sm font-bold text-emerald-400">{Math.round(eng.expectedNow)} 萬</div>
+              </div>
+              <div className="bg-zinc-950 rounded p-2 border border-zinc-800">
+                <div className="text-xs text-zinc-500">現有資產複利到{retireAge}歲</div>
+                <div className="text-sm font-bold text-zinc-200">{Math.round(eng.fvOfCurrent)} 萬</div>
+              </div>
+              <div className="bg-zinc-950 rounded p-2 border border-zinc-800">
+                <div className="text-xs text-zinc-500">達標所需年投入</div>
+                <div className={`text-sm font-bold ${eng.requiredAnnual <= 0 ? "text-emerald-400" : "text-amber-300"}`}>
+                  {eng.requiredAnnual <= 0 ? "0(可滑行)" : `${Math.round(eng.requiredAnnual)} 萬/年`}
+                </div>
+              </div>
+            </div>
+            <p className="text-xs text-zinc-600 mt-2">
+              模型假設:25歲從0開始、固定年投入、報酬率恆定。判定:≥1.2x 超前、0.8-1.2x 符合、&lt;0.8x 落後。此結果會直接改變下方優先順序權重。
+            </p>
+          </div>
+        </div>
+
+        {/* 六曲線圖表 */}
+        <div className="bg-zinc-900 rounded-lg p-4 border border-zinc-800 mb-6">
+          <div className="flex flex-wrap gap-2 mb-2">
+            {readout.map(r => (
+              <button key={r.key}
+                onClick={() => setVisible(v => ({ ...v, [r.key]: !v[r.key] }))}
+                className={`text-xs px-2 py-0.5 rounded border transition-opacity ${
+                  visible[r.key] ? "opacity-100" : "opacity-30"}`}
+                style={{ borderColor: r.color, color: r.color }}>
+                {r.label}
+              </button>
+            ))}
+          </div>
+          <div className="h-72 md:h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={lifeData} margin={{ top: 8, right: 12, left: -22, bottom: 0 }}>
+                <CartesianGrid stroke="#27272a" strokeDasharray="2 4" />
+                <XAxis dataKey="age" stroke="#71717a" tick={{ fontSize: 11 }} />
+                <YAxis domain={[0, 100]} stroke="#71717a" tick={{ fontSize: 11 }} />
+                <Tooltip contentStyle={{ background: "#18181b", border: "1px solid #3f3f46", borderRadius: 8, fontSize: 12 }}
+                  labelFormatter={a => `年齡 ${a}`} />
+                {Object.keys(CURVES).map(k => visible[k] && (
+                  <Line key={k} dataKey={k} name={CURVES[k].label} stroke={CURVES[k].color}
+                    dot={false} strokeWidth={1.8} />
+                ))}
+                <ReferenceLine x={age} stroke="#FBBF24" strokeWidth={1.5}
+                  label={{ value: "你在這裡", fill: "#FBBF24", fontSize: 11, position: "top" }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+
+        {/* 儀表讀數 */}
+        <div className="grid grid-cols-3 md:grid-cols-6 gap-2 mb-6">
+          {readout.map(r => (
+            <div key={r.key} className="bg-zinc-900 border border-zinc-800 rounded-lg p-3">
+              <div className="text-xs truncate" style={{ color: r.color }}>{r.label}</div>
+              <div className="flex items-baseline gap-1 mt-1" style={{ fontFamily: "ui-monospace,monospace" }}>
+                <span className="text-xl font-bold">{r.now}</span>
+                <span className={`text-sm ${r.slope > 0.3 ? "text-emerald-400" : r.slope < -0.3 ? "text-red-400" : "text-zinc-500"}`}>
+                  {arrow(r.slope)}
+                </span>
+              </div>
+              <div className="text-xs text-zinc-600">{r.shape}</div>
+            </div>
+          ))}
+        </div>
+
+        {/* 優先順序 */}
+        <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-4 md:p-6">
+          <div className="flex items-center gap-2 mb-1">
+            <h2 className="text-lg font-bold">你這個階段的優先順序</h2>
+            <span className={`text-xs px-2 py-0.5 rounded border ${st.cls}`}>資產{st.text}</span>
+          </div>
+          <p className="text-xs text-zinc-500 mb-4">原則:用充裕的資源,換稀缺或即將消失的資源。權重已依定位器結果自動調整。</p>
+          <div className="space-y-3">
+            {priorities.map((pr, i) => (
+              <div key={pr.name} className={`rounded-lg p-4 border ${
+                i === 0 ? "border-amber-400/60 bg-amber-400/5" : "border-zinc-800 bg-zinc-950"}`}>
+                <div className="flex items-center justify-between">
+                  <div className="font-semibold">
+                    <span className="text-amber-400 mr-2" style={{ fontFamily: "ui-monospace,monospace" }}>P{i + 1}</span>
+                    {pr.name}
+                  </div>
+                  <div className="w-24 h-1.5 bg-zinc-800 rounded-full overflow-hidden">
+                    <div className="h-full bg-amber-400 rounded-full" style={{ width: `${Math.min(100, pr.score)}%` }} />
+                  </div>
+                </div>
+                <p className="text-sm text-zinc-400 mt-2">{pr.why}</p>
+                <p className="text-sm text-zinc-200 mt-1">→ {pr.action}</p>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-zinc-600 mt-4 leading-relaxed">
+            曲線為一般化模型,計算器為簡化的固定報酬模型,非投資建議。
+            投資會複利的,保護只會遞減的,並在鐘形曲線關窗之前,把該做的體驗做掉。
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<LifeResourcePlanner />);
+</script>
+</body>
+</html>
