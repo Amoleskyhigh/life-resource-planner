@@ -113,7 +113,7 @@ svg{display:block}
 .rounded-lg{border-radius:.5rem}
 .rounded-full{border-radius:9999px}
 
-/* ── Opacity modifier utilities (not in pre-built Tailwind) ── */
+/* ── Opacity modifier utilities ── */
 .text-amber-400\/80{color:rgb(251 191 36/0.8)}
 .border-amber-400\/20{border-color:rgb(251 191 36/0.2)}
 .border-amber-400\/50{border-color:rgb(251 191 36/0.5)}
@@ -139,6 +139,7 @@ svg{display:block}
 .focus\:outline-none:focus{outline:2px solid transparent;outline-offset:2px}
 
 /* ── Responsive ── */
+.p-4{padding:1rem}
 @media(min-width:768px){
   .md\:p-6{padding:1.5rem}
   .md\:p-8{padding:2rem}
@@ -154,23 +155,43 @@ svg{display:block}
 #__err{position:fixed;top:0;left:0;right:0;background:#dc2626;color:#fff;padding:8px 12px;z-index:9999;font-family:monospace;font-size:12px;display:none}
 </style>
 <script>
-window.onerror=function(m,u,l,c,err){
-  var e=document.getElementById('__err');
-  if(e){e.textContent='JS Error: '+m+' ('+(err&&err.stack?err.stack:u+':'+l)+')';e.style.display='block';}
+window.onerror = function(m, u, l, c, err) {
+  var e = document.getElementById('__err');
+  if (e) {
+    e.textContent = 'JS Error: ' + m + '\n' + (err && err.stack ? err.stack : u + ':' + l);
+    e.style.display = 'block';
+    e.style.whiteSpace = 'pre';
+    e.style.fontSize = '11px';
+  }
 };
+window.addEventListener('unhandledrejection', function(ev) {
+  var e = document.getElementById('__err');
+  if (e) {
+    e.textContent = 'Unhandled Promise Rejection: ' + (ev.reason && ev.reason.message ? ev.reason.message : String(ev.reason));
+    e.style.display = 'block';
+  }
+});
+setTimeout(function() {
+  var root = document.getElementById('root');
+  if (root && root.querySelector('p[data-loading]')) {
+    var e = document.getElementById('__err');
+    if (e) {
+      e.textContent = 'Babel/React 載入超時 (8秒)。請開啟 DevTools Console (F12) 查看詳細錯誤。';
+      e.style.display = 'block';
+    }
+  }
+}, 8000);
 </script>
 </head>
 <body>
 <div id="__err"></div>
-<div id="root"><p style="color:#e4e4e7;padding:2rem;font-family:sans-serif">正在載入...</p></div>
+<div id="root"><p data-loading="1" style="color:#e4e4e7;padding:2rem;font-family:sans-serif">正在載入...</p></div>
 <script type="text/babel" data-presets="react">
-try {
 
 const { useState, useMemo } = React;
 const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
         ReferenceLine, ReferenceDot, ResponsiveContainer } = Recharts;
 
-// ---------- 曲線模型(0-90歲,相對水準0-100) ----------
 const lerp = (pts, age) => {
   const xs = Object.keys(pts).map(Number).sort((a, b) => a - b);
   if (age <= xs[0]) return pts[xs[0]];
@@ -204,34 +225,28 @@ const slopeOf = (key, age) =>
 const arrow = (s) =>
   s > 1.2 ? "↑" : s > 0.3 ? "↗" : s > -0.3 ? "→" : s > -1.2 ? "↘" : "↓";
 
-// ---------- 方法三:應達曲線引擎 ----------
 function wealthEngine({ age, target, currentNW, ret, retireAge }) {
   const r = ret / 100;
   const startAge = 25;
   const nYears = Math.max(1, retireAge - startAge);
   const growth = Math.pow(1 + r, nYears) - 1;
   const baseC = r > 0 ? (target * r) / growth : target / nYears;
-
   const expectedAt = (a) => {
     if (a <= startAge) return 0;
     const y = Math.min(a, retireAge) - startAge;
     return r > 0 ? (baseC * (Math.pow(1 + r, y) - 1)) / r : baseC * y;
   };
-
   const expectedNow = expectedAt(age);
   const ratio = expectedNow > 0 ? currentNW / expectedNow : currentNW > 0 ? 2 : 1;
   const status = ratio >= 1.2 ? "ahead" : ratio >= 0.8 ? "ontrack" : "behind";
-
   const yLeft = Math.max(0, retireAge - age);
   const fvOfCurrent = currentNW * Math.pow(1 + r, yLeft);
   const gap = target - fvOfCurrent;
   const annuity = r > 0 ? (Math.pow(1 + r, yLeft) - 1) / r : yLeft;
   const requiredAnnual = yLeft > 0 ? gap / Math.max(annuity, 0.0001) : gap;
-
   return { expectedAt, expectedNow, ratio, status, requiredAnnual, fvOfCurrent, yLeft };
 }
 
-// ---------- CAPE 調整型提領率 ----------
 function capeSWR(cape) {
   if (!cape || cape <= 0) return 4.0;
   const table = [[10, 5.5], [20, 4.0], [30, 3.0], [40, 2.5]];
@@ -246,11 +261,9 @@ function capeSWR(cape) {
   return 4.0;
 }
 
-// ---------- 優先順序引擎 ----------
 function computePriorities(age, exercise, wealthStatus, freeHrs, requiredAnnual) {
   const p = [];
   const phys = lerp(CURVES.physical.pts, age);
-
   let healthScore = 60 + (age >= 35 ? 15 : 0) + (exercise === "low" ? 25 : exercise === "mid" ? 10 : 0);
   p.push({
     name: "健康(乘數)", score: healthScore,
@@ -259,7 +272,6 @@ function computePriorities(age, exercise, wealthStatus, freeHrs, requiredAnnual)
       : "健康是所有資源的乘數。維持現有習慣,重點是不中斷。",
     action: age < 35 ? "建立可維持30年的運動習慣(不求強度,求不中斷)" : "肌力訓練優先於有氧——40歲後肌肉量每年流失約1%",
   });
-
   let wealthScore = 50 + (age < 40 ? 25 : age < 55 ? 15 : 0)
     + (wealthStatus === "behind" ? 25 : wealthStatus === "ontrack" ? 5 : -15);
   p.push({
@@ -273,7 +285,6 @@ function computePriorities(age, exercise, wealthStatus, freeHrs, requiredAnnual)
       ? "先確認缺口是投入不足還是報酬假設過高,再決定提高儲蓄率或延後目標年齡"
       : age < 50 ? "自動化定期投入,把儲蓄率當KPI而非絕對金額" : "壓力測試提領計畫,降低單一資產集中度",
   });
-
   let knowScore = 45 + (age < 30 ? 30 : age < 45 ? 15 : 5);
   p.push({
     name: "知識/技能", score: knowScore,
@@ -282,7 +293,6 @@ function computePriorities(age, exercise, wealthStatus, freeHrs, requiredAnnual)
       : "流體智力緩降但知識持續複利,學習策略應從「快速吸收」轉向「深度整合既有經驗」。",
     action: age < 35 ? "投資可轉移的底層技能(數學、寫作、程式)" : "把經驗系統化輸出(教學、寫作、帶人)——這是知識曲線後段的複利方式",
   });
-
   let timeScore = 30 + (age >= 30 && age <= 50 ? 35 : 10) + (freeHrs === "low" ? 20 : 0)
     + (wealthStatus === "ahead" ? 10 : 0);
   p.push({
@@ -294,7 +304,6 @@ function computePriorities(age, exercise, wealthStatus, freeHrs, requiredAnnual)
       ? "列出時薪低於你收入1/3的所有雜務,全部外包或自動化"
       : "保護整塊時間(deep work / 陪伴),零碎時間才交給雜務",
   });
-
   let expScore = 25 + (phys < 75 && phys > 40 ? 35 : phys <= 40 ? 45 : 5)
     + (age >= 45 ? 10 : 0) + (wealthStatus === "ahead" ? 15 : 0);
   p.push({
@@ -306,7 +315,6 @@ function computePriorities(age, exercise, wealthStatus, freeHrs, requiredAnnual)
         : "高強度體驗窗口大部分已關閉,重心轉向低體力、高意義的體驗(深度旅居、關係、傳承)。",
     action: "把體驗清單按「所需體力」排序,體力需求最高的排最前面執行",
   });
-
   return p.sort((a, b) => b.score - a.score);
 }
 
@@ -315,6 +323,36 @@ const STATUS_UI = {
   ontrack: { text: "符合", cls: "text-sky-300 border-sky-400/50 bg-sky-400/10" },
   ahead: { text: "超前", cls: "text-emerald-400 border-emerald-400/50 bg-emerald-400/10" },
 };
+
+class ErrorBoundary extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { hasError: false, error: null };
+  }
+  static getDerivedStateFromError(error) {
+    return { hasError: true, error };
+  }
+  componentDidCatch(error, info) {
+    var e = document.getElementById('__err');
+    if (e) {
+      e.textContent = 'React Error: ' + error.message + '\n' + (error.stack || '') + '\n' + (info && info.componentStack || '');
+      e.style.display = 'block';
+      e.style.whiteSpace = 'pre';
+      e.style.fontSize = '11px';
+    }
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div style={{ padding: '2rem', fontFamily: 'monospace', fontSize: '13px', color: '#f87171', background: '#1a0000', minHeight: '100vh' }}>
+          <h2 style={{ color: '#f87171', marginTop: 0 }}>渲染錯誤</h2>
+          <pre>{this.state.error && this.state.error.toString()}</pre>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 function LifeResourcePlanner() {
   const [age, setAge] = useState(38);
@@ -331,7 +369,6 @@ function LifeResourcePlanner() {
     () => wealthEngine({ age, target, currentNW, ret, retireAge }),
     [age, target, currentNW, ret, retireAge]
   );
-
   const swrCape = useMemo(() => capeSWR(cape), [cape]);
   const monthlyPassive = useMemo(() => Math.round(target * swrCape / 100 / 12), [target, swrCape]);
 
@@ -405,7 +442,6 @@ function LifeResourcePlanner() {
           <p className="text-sm text-zinc-400 mt-1">六條曲線 + 應達曲線定位器 + CAPE 調整型提領率。找出你這個階段該優先做好的事。</p>
         </div>
 
-        {/* 輸入區 */}
         <div className="grid md:grid-cols-3 gap-4 mb-6">
           <div className="bg-zinc-900 rounded-lg p-4 border border-zinc-800">
             <div className="flex justify-between items-baseline mb-2">
@@ -430,7 +466,6 @@ function LifeResourcePlanner() {
             </div>
           </div>
 
-          {/* 方法三計算器 */}
           <div className="md:col-span-2 bg-zinc-900 rounded-lg p-4 border border-zinc-800">
             <div className="flex items-center justify-between mb-3">
               <div className="text-sm font-semibold text-zinc-300">目標回推定位器(方法三)</div>
@@ -477,12 +512,11 @@ function LifeResourcePlanner() {
               </div>
             </div>
             <p className="text-xs text-zinc-600 mt-2">
-              模型假設:25歲從0開始、固定年投入、報酬率恆定。判定:≥1.2x 超前、0.8-1.2x 符合、&lt;0.8x 落後。此結果會直接改變下方優先順序權重。
+              模型假設:25歲從0開始、固定年投入、報酬率恆定。判定:≥1.2x 超前、0.8-1.2x 符合、&lt;0.8x 落後。
             </p>
           </div>
         </div>
 
-        {/* CAPE 調整型提領率模組 */}
         <div className="bg-zinc-900 rounded-lg p-4 border border-amber-400/20 mb-6">
           <div className="flex items-center justify-between mb-3">
             <div>
@@ -522,11 +556,10 @@ function LifeResourcePlanner() {
             </div>
           </div>
           <p className="text-xs text-zinc-600 mt-2">
-            參考 Kitces / Pfau 研究。CAPE 10→5.5%、20→4.0%、30→3.0%、40→2.5% 線性內插。Shiller CAPE 可在 multpl.com 查詢。
+            參考 Kitces / Pfau 研究。CAPE 10→5.5%、20→4.0%、30→3.0%、40→2.5% 線性內插。
           </p>
         </div>
 
-        {/* 六曲線圖表 */}
         <div className="bg-zinc-900 rounded-lg p-4 border border-zinc-800 mb-6">
           <div className="flex flex-wrap gap-2 mb-2">
             {readout.map(r => (
@@ -558,7 +591,6 @@ function LifeResourcePlanner() {
           </div>
         </div>
 
-        {/* 儀表讀數 */}
         <div className="grid grid-cols-3 md:grid-cols-6 gap-2 mb-6">
           {readout.map(r => (
             <div key={r.key} className="bg-zinc-900 border border-zinc-800 rounded-lg p-3">
@@ -574,7 +606,6 @@ function LifeResourcePlanner() {
           ))}
         </div>
 
-        {/* 優先順序 */}
         <div className="bg-zinc-900 rounded-lg border border-zinc-800 p-4 md:p-6">
           <div className="flex items-center gap-2 mb-1">
             <h2 className="text-lg font-bold">你這個階段的優先順序</h2>
@@ -609,17 +640,10 @@ function LifeResourcePlanner() {
   );
 }
 
-ReactDOM.createRoot(document.getElementById('root')).render(<LifeResourcePlanner />);
+ReactDOM.createRoot(document.getElementById('root')).render(
+  <ErrorBoundary><LifeResourcePlanner /></ErrorBoundary>
+);
 
-} catch(e) {
-  var errDiv = document.getElementById('__err');
-  if(errDiv){
-    errDiv.textContent = 'Render Error: ' + e.message + '\n' + (e.stack||'');
-    errDiv.style.display = 'block';
-    errDiv.style.whiteSpace = 'pre';
-    errDiv.style.fontSize = '11px';
-  }
-}
 </script>
 </body>
 </html>
