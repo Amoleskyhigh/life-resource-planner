@@ -156,6 +156,8 @@ svg{display:block}
 </style>
 <script>
 window.onerror = function(m, u, l, c, err) {
+  // 'Script error.' = cross-origin CDN noise（瀏覽器安全機制隱藏第三方錯誤），忽略
+  if (!m || m === 'Script error.' || m === 'Script error') return true;
   var e = document.getElementById('__err');
   if (e) {
     e.textContent = 'JS Error: ' + m + '\n' + (err && err.stack ? err.stack : u + ':' + l);
