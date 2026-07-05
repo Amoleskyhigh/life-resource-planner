@@ -4,15 +4,117 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>人生資源儀表板 | Life Resource Instrument</title>
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tailwindcss@3.4.17/dist/tailwind.min.css">
 <script crossorigin src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"></script>
 <script crossorigin src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
 <script crossorigin src="https://cdn.jsdelivr.net/npm/prop-types@15.8.1/prop-types.min.js"></script>
 <script crossorigin src="https://cdn.jsdelivr.net/npm/recharts@2.12.7/umd/Recharts.js"></script>
 <script crossorigin src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.26.4/babel.min.js"></script>
 <style>
-body{background:#09090b;margin:0}
-/* opacity modifier utilities not in pre-built Tailwind */
+/* ── Critical base reset ── */
+*,::before,::after{box-sizing:border-box;border-width:0;border-style:solid}
+body{background:#09090b;color:#e4e4e7;margin:0;-webkit-text-size-adjust:100%}
+button,input{font-family:inherit;font-size:100%}
+input[type=range]{width:100%}
+svg{display:block}
+
+/* ── Layout ── */
+.min-h-screen{min-height:100vh}
+.max-w-5xl{max-width:64rem}
+.mx-auto{margin-left:auto;margin-right:auto}
+.w-full{width:100%}
+.w-24{width:6rem}
+.h-full{height:100%}
+.h-1\.5{height:.375rem}
+.h-40{height:10rem}
+.h-72{height:18rem}
+.overflow-hidden{overflow:hidden}
+
+/* ── Flex ── */
+.flex{display:flex}
+.flex-wrap{flex-wrap:wrap}
+.items-center{align-items:center}
+.items-baseline{align-items:baseline}
+.justify-between{justify-content:space-between}
+.gap-1{gap:.25rem}
+.gap-2{gap:.5rem}
+.gap-3{gap:.75rem}
+.gap-4{gap:1rem}
+
+/* ── Grid ── */
+.grid{display:grid}
+.grid-cols-2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.grid-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+
+/* ── Spacing ── */
+.p-2{padding:.5rem}
+.p-3{padding:.75rem}
+.p-4{padding:1rem}
+.px-2{padding-left:.5rem;padding-right:.5rem}
+.py-0\.5{padding-top:.125rem;padding-bottom:.125rem}
+.py-1{padding-top:.25rem;padding-bottom:.25rem}
+.pb-4{padding-bottom:1rem}
+.mt-0\.5{margin-top:.125rem}
+.mt-1{margin-top:.25rem}
+.mt-2{margin-top:.5rem}
+.mt-3{margin-top:.75rem}
+.mt-4{margin-top:1rem}
+.mb-1{margin-bottom:.25rem}
+.mb-2{margin-bottom:.5rem}
+.mb-3{margin-bottom:.75rem}
+.mb-4{margin-bottom:1rem}
+.mb-6{margin-bottom:1.5rem}
+.mr-2{margin-right:.5rem}
+.space-y-3>*+*{margin-top:.75rem}
+
+/* ── Typography ── */
+.text-xs{font-size:.75rem;line-height:1rem}
+.text-sm{font-size:.875rem;line-height:1.25rem}
+.text-lg{font-size:1.125rem;line-height:1.75rem}
+.text-xl{font-size:1.25rem;line-height:1.75rem}
+.text-2xl{font-size:1.5rem;line-height:2rem}
+.text-3xl{font-size:1.875rem;line-height:2.25rem}
+.font-bold{font-weight:700}
+.font-semibold{font-weight:600}
+.uppercase{text-transform:uppercase}
+.tracking-widest{letter-spacing:.1em}
+.leading-relaxed{line-height:1.625}
+.text-center{text-align:center}
+.text-right{text-align:right}
+.truncate{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.whitespace-nowrap{white-space:nowrap}
+
+/* ── Colors: background ── */
+.bg-zinc-950{background-color:#09090b}
+.bg-zinc-900{background-color:#18181b}
+.bg-zinc-800{background-color:#27272a}
+
+/* ── Colors: text ── */
+.text-zinc-100{color:#f4f4f5}
+.text-zinc-200{color:#e4e4e7}
+.text-zinc-300{color:#d4d4d8}
+.text-zinc-400{color:#a1a1aa}
+.text-zinc-500{color:#71717a}
+.text-zinc-600{color:#52525b}
+.text-amber-300{color:#fcd34d}
+.text-amber-400{color:#fbbf24}
+.text-emerald-400{color:#34d399}
+.text-red-400{color:#f87171}
+.text-sky-300{color:#7dd3fc}
+
+/* ── Colors: border ── */
+.border{border-width:1px;border-style:solid}
+.border-b{border-bottom-width:1px;border-bottom-style:solid}
+.border-zinc-700{border-color:#3f3f46}
+.border-zinc-800{border-color:#27272a}
+.border-amber-400{border-color:#fbbf24}
+
+/* ── Border radius ── */
+.rounded{border-radius:.25rem}
+.rounded-lg{border-radius:.5rem}
+.rounded-full{border-radius:9999px}
+
+/* ── Opacity modifier utilities (not in pre-built Tailwind) ── */
+.text-amber-400\/80{color:rgb(251 191 36/0.8)}
 .border-amber-400\/20{border-color:rgb(251 191 36/0.2)}
 .border-amber-400\/50{border-color:rgb(251 191 36/0.5)}
 .border-amber-400\/60{border-color:rgb(251 191 36/0.6)}
@@ -24,7 +126,31 @@ body{background:#09090b;margin:0}
 .bg-sky-400\/10{background-color:rgb(56 189 248/0.1)}
 .border-emerald-400\/50{border-color:rgb(52 211 153/0.5)}
 .bg-emerald-400\/5{background-color:rgb(52 211 153/0.05)}
-/* error display */
+.bg-emerald-400\/10{background-color:rgb(52 211 153/0.1)}
+
+/* ── Interactive ── */
+.accent-amber-400{accent-color:#fbbf24}
+.opacity-30{opacity:.3}
+.opacity-100{opacity:1}
+.transition-colors{transition-property:color,background-color,border-color;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:150ms}
+.transition-opacity{transition-property:opacity;transition-timing-function:cubic-bezier(.4,0,.2,1);transition-duration:150ms}
+.hover\:border-zinc-500:hover{border-color:#71717a}
+.focus\:border-amber-400:focus{border-color:#fbbf24}
+.focus\:outline-none:focus{outline:2px solid transparent;outline-offset:2px}
+
+/* ── Responsive ── */
+@media(min-width:768px){
+  .md\:p-6{padding:1.5rem}
+  .md\:p-8{padding:2rem}
+  .md\:text-3xl{font-size:1.875rem;line-height:2.25rem}
+  .md\:grid-cols-3{grid-template-columns:repeat(3,minmax(0,1fr))}
+  .md\:grid-cols-4{grid-template-columns:repeat(4,minmax(0,1fr))}
+  .md\:grid-cols-6{grid-template-columns:repeat(6,minmax(0,1fr))}
+  .md\:col-span-2{grid-column:span 2/span 2}
+  .md\:h-80{height:20rem}
+}
+
+/* ── Error display ── */
 #__err{position:fixed;top:0;left:0;right:0;background:#dc2626;color:#fff;padding:8px 12px;z-index:9999;font-family:monospace;font-size:12px;display:none}
 </style>
 <script>
@@ -101,11 +227,8 @@ function wealthEngine({ age, target, currentNW, ret, retireAge }) {
 }
 
 // ---------- CAPE 調整型提領率 ----------
-// 根據 Shiller CAPE 動態調整安全提領率 (SWR)
-// 公式參考: Kitces / Pfau 研究，CAPE 越高 → SWR 越保守
 function capeSWR(cape) {
   if (!cape || cape <= 0) return 4.0;
-  // 線性內插: CAPE=10 → 5.5%, CAPE=20 → 4.0%, CAPE=30 → 3.0%, CAPE=40+ → 2.5%
   const table = [[10, 5.5], [20, 4.0], [30, 3.0], [40, 2.5]];
   if (cape <= table[0][0]) return table[0][1];
   if (cape >= table[table.length-1][0]) return table[table.length-1][1];
@@ -197,7 +320,6 @@ function LifeResourcePlanner() {
   const [currentNW, setCurrentNW] = useState(800);
   const [ret, setRet] = useState(6);
   const [retireAge, setRetireAge] = useState(60);
-  // CAPE 調整型提領率
   const [cape, setCape] = useState(30);
 
   const eng = useMemo(
