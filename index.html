@@ -9,7 +9,7 @@
 <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
 <script crossorigin src="https://unpkg.com/prop-types@15/prop-types.min.js"></script>
 <script crossorigin src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<script crossorigin src="https://unpkg.com/@babel/standalone@7.26.4/babel.min.js"></script>
 <style>body{background:#09090b;margin:0}</style>
 </head>
 <body>
@@ -54,8 +54,6 @@ const arrow = (s) =>
   s > 1.2 ? "↑" : s > 0.3 ? "↗" : s > -0.3 ? "→" : s > -1.2 ? "↘" : "↓";
 
 // ---------- 方法三:應達曲線引擎 ----------
-// 假設從25歲、淨資產0開始,以固定年投入C+報酬率r,在退休年齡剛好達標。
-// 應達(a) = C × ((1+r)^(a-25) − 1) / r
 function wealthEngine({ age, target, currentNW, ret, retireAge }) {
   const r = ret / 100;
   const startAge = 25;
@@ -73,7 +71,6 @@ function wealthEngine({ age, target, currentNW, ret, retireAge }) {
   const ratio = expectedNow > 0 ? currentNW / expectedNow : currentNW > 0 ? 2 : 1;
   const status = ratio >= 1.2 ? "ahead" : ratio >= 0.8 ? "ontrack" : "behind";
 
-  // 由現況回推:未來每年需投入多少才能達標
   const yLeft = Math.max(0, retireAge - age);
   const fvOfCurrent = currentNW * Math.pow(1 + r, yLeft);
   const gap = target - fvOfCurrent;
@@ -81,6 +78,24 @@ function wealthEngine({ age, target, currentNW, ret, retireAge }) {
   const requiredAnnual = yLeft > 0 ? gap / Math.max(annuity, 0.0001) : gap;
 
   return { expectedAt, expectedNow, ratio, status, requiredAnnual, fvOfCurrent, yLeft };
+}
+
+// ---------- CAPE 調整型提領率 ----------
+// 根據 Shiller CAPE 動態調整安全提領率 (SWR)
+// 公式參考: Kitces / Pfau 研究，CAPE 越高 → SWR 越保守
+function capeSWR(cape) {
+  if (!cape || cape <= 0) return 4.0;
+  // 線性內插: CAPE=10 → 5.5%, CAPE=20 → 4.0%, CAPE=30 → 3.0%, CAPE=40+ → 2.5%
+  const table = [[10, 5.5], [20, 4.0], [30, 3.0], [40, 2.5]];
+  if (cape <= table[0][0]) return table[0][1];
+  if (cape >= table[table.length-1][0]) return table[table.length-1][1];
+  for (let i = 0; i < table.length - 1; i++) {
+    if (cape >= table[i][0] && cape <= table[i+1][0]) {
+      const t = (cape - table[i][0]) / (table[i+1][0] - table[i][0]);
+      return table[i][1] + t * (table[i+1][1] - table[i][1]);
+    }
+  }
+  return 4.0;
 }
 
 // ---------- 優先順序引擎 ----------
@@ -158,16 +173,20 @@ function LifeResourcePlanner() {
   const [exercise, setExercise] = useState("mid");
   const [freeHrs, setFreeHrs] = useState("low");
   const [visible, setVisible] = useState(Object.fromEntries(Object.keys(CURVES).map(k => [k, true])));
-  // 方法三輸入(單位:萬台幣)
   const [target, setTarget] = useState(3000);
   const [currentNW, setCurrentNW] = useState(800);
   const [ret, setRet] = useState(6);
   const [retireAge, setRetireAge] = useState(60);
+  // CAPE 調整型提領率
+  const [cape, setCape] = useState(30);
 
   const eng = useMemo(
     () => wealthEngine({ age, target, currentNW, ret, retireAge }),
     [age, target, currentNW, ret, retireAge]
   );
+
+  const swrCape = useMemo(() => capeSWR(cape), [cape]);
+  const monthlyPassive = useMemo(() => Math.round(target * swrCape / 100 / 12), [target, swrCape]);
 
   const lifeData = useMemo(() => {
     const rows = [];
@@ -233,10 +252,10 @@ function LifeResourcePlanner() {
       <div className="max-w-5xl mx-auto">
         <div className="mb-6 border-b border-zinc-800 pb-4">
           <div className="text-xs tracking-widest text-amber-400/80 uppercase" style={{ fontFamily: "ui-monospace,monospace" }}>
-            Life Resource Instrument · v2.0
+            Life Resource Instrument · v2.1
           </div>
           <h1 className="text-2xl md:text-3xl font-bold mt-1">人生資源儀表板</h1>
-          <p className="text-sm text-zinc-400 mt-1">六條曲線 + 應達曲線定位器。找出你這個階段該優先做好的事。</p>
+          <p className="text-sm text-zinc-400 mt-1">六條曲線 + 應達曲線定位器 + CAPE 調整型提領率。找出你這個階段該優先做好的事。</p>
         </div>
 
         {/* 輸入區 */}
@@ -314,6 +333,50 @@ function LifeResourcePlanner() {
               模型假設:25歲從0開始、固定年投入、報酬率恆定。判定:≥1.2x 超前、0.8-1.2x 符合、&lt;0.8x 落後。此結果會直接改變下方優先順序權重。
             </p>
           </div>
+        </div>
+
+        {/* CAPE 調整型提領率模組 */}
+        <div className="bg-zinc-900 rounded-lg p-4 border border-amber-400/20 mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <div className="text-sm font-semibold text-zinc-300">CAPE 調整型提領率</div>
+              <div className="text-xs text-zinc-500 mt-0.5">Shiller CAPE 越高 → 市場越貴 → 保守提領率</div>
+            </div>
+            <div className="text-right" style={{ fontFamily: "ui-monospace,monospace" }}>
+              <div className="text-2xl font-bold text-amber-300">{swrCape.toFixed(1)}%</div>
+              <div className="text-xs text-zinc-500">CAPE 調整後 SWR</div>
+            </div>
+          </div>
+          <div className="grid md:grid-cols-3 gap-4 items-center">
+            <div className="md:col-span-2">
+              <div className="flex justify-between text-xs text-zinc-500 mb-1">
+                <span>Shiller CAPE 當前值</span>
+                <span className={`font-semibold ${cape < 20 ? "text-emerald-400" : cape < 30 ? "text-amber-300" : "text-red-400"}`}>
+                  {cape} {cape < 20 ? "（偏低）" : cape < 30 ? "（中性）" : "（偏高）"}
+                </span>
+              </div>
+              <input type="range" min={10} max={50} value={cape}
+                onChange={e => setCape(Number(e.target.value))}
+                className="w-full accent-amber-400" />
+              <div className="flex justify-between text-xs text-zinc-600 mt-0.5">
+                <span>10（便宜）→ 5.5% SWR</span>
+                <span>40+（貴）→ 2.5% SWR</span>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-center" style={{ fontFamily: "ui-monospace,monospace" }}>
+              <div className="bg-zinc-950 rounded p-2 border border-zinc-800">
+                <div className="text-xs text-zinc-500">年提領上限</div>
+                <div className="text-sm font-bold text-amber-300">{Math.round(target * swrCape / 100)} 萬</div>
+              </div>
+              <div className="bg-zinc-950 rounded p-2 border border-zinc-800">
+                <div className="text-xs text-zinc-500">每月被動收入</div>
+                <div className="text-sm font-bold text-emerald-400">{monthlyPassive} 萬</div>
+              </div>
+            </div>
+          </div>
+          <p className="text-xs text-zinc-600 mt-2">
+            參考 Kitces / Pfau 研究。CAPE 10→5.5%、20→4.0%、30→3.0%、40→2.5% 線性內插。Shiller CAPE 可在 multpl.com 查詢。
+          </p>
         </div>
 
         {/* 六曲線圖表 */}
