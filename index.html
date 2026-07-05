@@ -154,13 +154,18 @@ svg{display:block}
 #__err{position:fixed;top:0;left:0;right:0;background:#dc2626;color:#fff;padding:8px 12px;z-index:9999;font-family:monospace;font-size:12px;display:none}
 </style>
 <script>
-window.onerror=function(m,u,l){var e=document.getElementById('__err');if(e){e.textContent='JS Error: '+m+' ('+u+':'+l+')';e.style.display='block';}};
+window.onerror=function(m,u,l,c,err){
+  var e=document.getElementById('__err');
+  if(e){e.textContent='JS Error: '+m+' ('+(err&&err.stack?err.stack:u+':'+l)+')';e.style.display='block';}
+};
 </script>
 </head>
 <body>
 <div id="__err"></div>
-<div id="root"></div>
+<div id="root"><p style="color:#e4e4e7;padding:2rem;font-family:sans-serif">正在載入...</p></div>
 <script type="text/babel" data-presets="react">
+try {
+
 const { useState, useMemo } = React;
 const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
         ReferenceLine, ReferenceDot, ResponsiveContainer } = Recharts;
@@ -605,6 +610,16 @@ function LifeResourcePlanner() {
 }
 
 ReactDOM.createRoot(document.getElementById('root')).render(<LifeResourcePlanner />);
+
+} catch(e) {
+  var errDiv = document.getElementById('__err');
+  if(errDiv){
+    errDiv.textContent = 'Render Error: ' + e.message + '\n' + (e.stack||'');
+    errDiv.style.display = 'block';
+    errDiv.style.whiteSpace = 'pre';
+    errDiv.style.fontSize = '11px';
+  }
+}
 </script>
 </body>
 </html>
