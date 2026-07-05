@@ -190,7 +190,7 @@ setTimeout(function() {
 <div id="root"><p data-loading="1" style="color:#e4e4e7;padding:2rem;font-family:sans-serif">正在載入...</p></div>
 <script type="text/babel" data-presets="react">
 
-const { useState, useMemo } = React;
+const { useState, useMemo, useRef, useEffect } = React;
 const { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
         ReferenceLine, ReferenceDot, ResponsiveContainer } = Recharts;
 
@@ -326,6 +326,57 @@ const STATUS_UI = {
   ahead: { text: "超前", cls: "text-emerald-400 border-emerald-400/50 bg-emerald-400/10" },
 };
 
+// Sel & NumInput 定義在元件外部，避免父元件 re-render 時被 unmount/remount 導致手機鍵盤跑掉
+
+const Sel = ({ value, onChange, opts }) => (
+  <div className="flex gap-1">
+    {opts.map(([v, t]) => (
+      <button key={v} onClick={() => onChange(v)}
+        className={`px-2 py-1 text-xs rounded border transition-colors ${
+          value === v ? "border-amber-400 text-amber-300 bg-amber-400/10"
+                      : "border-zinc-700 text-zinc-400 hover:border-zinc-500"}`}>
+        {t}
+      </button>
+    ))}
+  </div>
+);
+
+const NumInput = ({ label, value, onChange, unit, min, max, step }) => {
+  const [local, setLocal] = useState(value);
+  const focused = useRef(false);
+  useEffect(() => { if (!focused.current) setLocal(value); }, [value]);
+  return (
+    <div>
+      <div className="text-xs text-zinc-500 mb-1">{label}</div>
+      <div className="flex items-center gap-1">
+        <input
+          type="number"
+          inputMode="decimal"
+          value={local}
+          min={min} max={max} step={step}
+          onFocus={() => { focused.current = true; }}
+          onChange={e => setLocal(e.target.value)}
+          onBlur={e => {
+            focused.current = false;
+            const n = parseFloat(e.target.value);
+            if (!isNaN(n)) {
+              const clamped = Math.max(min != null ? min : -Infinity, Math.min(max != null ? max : Infinity, n));
+              onChange(clamped);
+              setLocal(clamped);
+            } else {
+              setLocal(value);
+            }
+          }}
+          onKeyDown={e => { if (e.key === 'Enter') e.target.blur(); }}
+          className="w-full bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-100 focus:border-amber-400 focus:outline-none"
+          style={{ fontFamily: "ui-monospace,monospace" }}
+        />
+        <span className="text-xs text-zinc-500 whitespace-nowrap">{unit}</span>
+      </div>
+    </div>
+  );
+};
+
 class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -406,32 +457,6 @@ function LifeResourcePlanner() {
     age < 35 ? "複利啟動期 — 體力頂點窗口" :
     age < 50 ? "轉換期 — 自由時間谷底" :
     age < 65 ? "收成期 — 體驗窗口倒數" : "執行期 — 資產轉體驗";
-
-  const Sel = ({ value, onChange, opts }) => (
-    <div className="flex gap-1">
-      {opts.map(([v, t]) => (
-        <button key={v} onClick={() => onChange(v)}
-          className={`px-2 py-1 text-xs rounded border transition-colors ${
-            value === v ? "border-amber-400 text-amber-300 bg-amber-400/10"
-                        : "border-zinc-700 text-zinc-400 hover:border-zinc-500"}`}>
-          {t}
-        </button>
-      ))}
-    </div>
-  );
-
-  const NumInput = ({ label, value, onChange, unit, min, max, step }) => (
-    <div>
-      <div className="text-xs text-zinc-500 mb-1">{label}</div>
-      <div className="flex items-center gap-1">
-        <input type="number" value={value} min={min} max={max} step={step}
-          onChange={e => onChange(Number(e.target.value))}
-          className="w-full bg-zinc-950 border border-zinc-700 rounded px-2 py-1 text-sm text-zinc-100 focus:border-amber-400 focus:outline-none"
-          style={{ fontFamily: "ui-monospace,monospace" }} />
-        <span className="text-xs text-zinc-500 whitespace-nowrap">{unit}</span>
-      </div>
-    </div>
-  );
 
   return (
     <div className="min-h-screen bg-zinc-950 text-zinc-200 p-4 md:p-8" style={{ fontFamily: "'Inter','Noto Sans TC',system-ui,sans-serif" }}>
